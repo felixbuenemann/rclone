@@ -149,7 +149,7 @@ func ListR(ctx context.Context, f fs.Fs, path string, includeAll bool, maxLevel 
 		filter.Active.UsesDirectoryFilters() { // ...using any directory filters
 		return listRwalk(ctx, f, path, includeAll, maxLevel, listType, fn)
 	}
-	return listR(ctx, f, path, includeAll, listType, fn, doListR, listType.Dirs() && f.Features().BucketBased)
+	return listR(ctx, f, path, includeAll, listType, fn, doListR, listType.Dirs() && (f.Features().BucketBased || f.Features().ListAllFiles))
 }
 
 // listRwalk walks the file tree for ListR using Walk

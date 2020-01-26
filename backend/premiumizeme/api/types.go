@@ -42,6 +42,7 @@ type Item struct {
 	TranscodeStatus string       `json:"transcode_status"`
 	IP              string       `json:"ip"`
 	MimeType        string       `json:"mime_type"`
+	Path            string       `json:"path,omitempty"`
 }
 
 // Breadcrumb is part the breadcrumb trail for a file or folder.  It
@@ -80,4 +81,10 @@ type AccountInfoResponse struct {
 	LimitUsed    float64 `json:"limit_used,omitempty"` // fraction 0..1 of download traffic limit
 	PremiumUntil int64   `json:"premium_until,omitempty"`
 	SpaceUsed    float64 `json:"space_used,omitempty"`
+}
+
+// ItemListAllResponse is the response to item/listall
+type ItemListAllResponse struct {
+	Response
+	Files []Item `json:"files"`
 }

@@ -82,6 +82,15 @@ To copy a local directory to an premiumize.me directory called backup
 
     rclone copy /home/source remote:backup
 
+### --fast-list ###
+
+This remote supports `--fast-list` which allows you to use fewer
+transactions in exchange for more memory. See the [rclone
+docs](/docs/#fast-list) for more details.
+
+It does this by listing all files using a single transaction and skipping
+non-matching files based on their directory prefix.
+
 ### Modified time and hashes ###
 
 premiumize.me does not support modification times or hashes, therefore

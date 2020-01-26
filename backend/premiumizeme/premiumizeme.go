@@ -37,7 +37,9 @@ import (
 	"github.com/rclone/rclone/fs/config/obscure"
 	"github.com/rclone/rclone/fs/fserrors"
 	"github.com/rclone/rclone/fs/fshttp"
+	"github.com/rclone/rclone/fs/fspath"
 	"github.com/rclone/rclone/fs/hash"
+	"github.com/rclone/rclone/fs/walk"
 	"github.com/rclone/rclone/lib/dircache"
 	"github.com/rclone/rclone/lib/encoder"
 	"github.com/rclone/rclone/lib/oauthutil"
@@ -267,6 +269,7 @@ func NewFs(name, root string, m configmap.Mapper) (fs.Fs, error) {
 		CaseInsensitive:         true,
 		CanHaveEmptyDirectories: true,
 		ReadMimeType:            true,
+		ListAllFiles:            true,
 	}).Fill(f)
 	f.srv.SetErrorHandler(errorHandler)
 
@@ -448,6 +451,48 @@ func (f *Fs) listAll(ctx context.Context, dirID string, directoriesOnly bool, fi
 	return
 }
 
+// Lists all files calling the user function on each item found
+//
+// If the user fn ever returns true then it early exits with found = true
+func (f *Fs) listAllFiles(ctx context.Context, dir string, fn listAllFn) (found bool, err error) {
+	opts := rest.Opts{
+		Method:     "GET",
+		Path:       "/item/listall",
+		Parameters: f.baseParams(),
+	}
+
+	var result api.ItemListAllResponse
+	var resp *http.Response
+	err = f.pacer.Call(func() (bool, error) {
+		resp, err = f.srv.CallJSON(ctx, &opts, nil, &result)
+		return shouldRetry(resp, err)
+	})
+	if err != nil {
+		return found, errors.Wrap(err, "couldn't list files")
+	}
+	if err = result.AsErr(); err != nil {
+		return found, errors.Wrap(err, "error while listing")
+	}
+	dirPrefix := fspath.JoinRootPath(f.root, dir)
+	if dirPrefix != "" {
+		dirPrefix += "/"
+	}
+	for i := range result.Files {
+		item := &result.Files[i]
+		if !strings.HasPrefix(item.Path, dirPrefix) {
+			continue
+		}
+		item.Type = api.ItemTypeFile
+		item.Name = f.opt.Enc.ToStandardName(item.Name)
+		if fn(item) {
+			found = true
+			break
+		}
+	}
+
+	return
+}
+
 // List the objects and directories in dir into entries.  The
 // entries can be returned in any order but should be for a
 // complete directory.
@@ -491,6 +536,48 @@ func (f *Fs) List(ctx context.Context, dir string) (entries fs.DirEntries, err e
 		return nil, iErr
 	}
 	return entries, nil
+}
+
+// ListR lists the objects and directories of the Fs starting
+// from dir recursively into out.
+//
+// dir should be "" to start from the root, and should not
+// have trailing slashes.
+//
+// This should return ErrDirNotFound if the directory isn't
+// found.
+//
+// It should call callback for each tranche of entries read.
+// These need not be returned in any particular order.  If
+// callback returns an error then the listing will stop
+// immediately.
+//
+// Don't implement this unless you have a more efficient way
+// of listing recursively than doing a directory traversal.
+func (f *Fs) ListR(ctx context.Context, dir string, callback fs.ListRCallback) (err error) {
+	err = f.dirCache.FindRoot(ctx, false)
+	if err != nil {
+		return err
+	}
+	_, err = f.dirCache.FindDir(ctx, dir, false)
+	if err != nil {
+		return err
+	}
+	list := walk.NewListRHelper(callback)
+	var iErr error
+	_, err = f.listAllFiles(ctx, dir, func(info *api.Item) bool {
+		entry, err := f.newObjectWithInfo(ctx, info.Path, info)
+		if err != nil {
+			iErr = err
+			return true
+		}
+		list.Add(entry)
+		return false
+	})
+	if iErr != nil {
+		return iErr
+	}
+	return list.Flush()
 }
 
 // Creates from the parameters passed in a half finished Object which
@@ -920,7 +1007,7 @@ func (o *Object) Size() int64 {
 
 // setMetaData sets the metadata from info
 func (o *Object) setMetaData(info *api.Item) (err error) {
-	if info.Type != "file" {
+	if info.Type != api.ItemTypeFile {
 		return errors.Wrapf(fs.ErrorNotAFile, "%q is %q", o.remote, info.Type)
 	}
 	o.hasMetaData = true
@@ -1195,6 +1282,7 @@ var (
 	_ fs.DirCacheFlusher = (*Fs)(nil)
 	_ fs.Abouter         = (*Fs)(nil)
 	_ fs.PublicLinker    = (*Fs)(nil)
+	_ fs.ListRer         = (*Fs)(nil)
 	_ fs.Object          = (*Object)(nil)
 	_ fs.MimeTyper       = (*Object)(nil)
 	_ fs.IDer            = (*Object)(nil)

@@ -512,6 +512,7 @@ type Features struct {
 	GetTier                 bool // allows to retrieve storage tier of objects
 	ServerSideAcrossConfigs bool // can server side copy between different remotes of the same type
 	IsLocal                 bool // is the local backend
+	ListAllFiles            bool // can recurisvely list only files
 
 	// Purge all files in the root and the root directory
 	//
